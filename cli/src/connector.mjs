@@ -15,7 +15,17 @@ import { WebSocket } from "ws"
 import http from "node:http"
 import https from "node:https"
 import { URL } from "node:url"
+import dns from "node:dns"
 import { ConnectProxyAgent, proxyUrlFor } from "./proxy-agent.mjs"
+
+// Node asks getaddrinfo for the origin with AI_ADDRCONFIG, which drops IPv6
+// results on a host that has no global IPv6 address — a container, typically.
+// A dev server bound to IPv6 loopback (Vite's default `localhost` resolves to
+// ::1) is then unreachable: the connector dials 127.0.0.1 and the tunnel
+// answers 502 origin_unreachable, while curl on the same box works. Look the
+// origin up without that hint; Node still tries every address it gets back, so
+// an IPv4-only origin keeps working too.
+const originLookup = (hostname, options, cb) => dns.lookup(hostname, { ...options, hints: 0 }, cb)
 
 const SSE_RECONNECT_ATTEMPTS = 10
 const SSE_RECONNECT_DELAY_MS = 1000
@@ -335,6 +345,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
       method: msg.method,
       path: target.pathname + target.search,
       headers,
+      lookup: originLookup,
     }
     const req = lib.request(reqOpts, (res) => {
       const chunks = []
@@ -382,6 +393,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
       .split(",").map((p) => p.trim()).filter(Boolean)
     const upstream = new WebSocket(targetUrl, protocols, {
       headers: stripHopByHop(msg.headers),
+      lookup: originLookup,
     })
     upstream.binaryType = "arraybuffer"
 
