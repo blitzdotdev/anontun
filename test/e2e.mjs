@@ -257,9 +257,13 @@ async function transportCase(label, relayBase, env) {
 // 1. ws transport (direct)
 {
   const { c, pathBase } = await transportCase("ws", relay, { EXPECT_TRANSPORT: "ws" })
+  // Clean exit: the CLI sends `bye`, so the relay tears the tunnel down at once
+  // instead of holding requests for the reconnect grace.
   c.kill("SIGTERM"); await sleep(1500)
+  const t0 = Date.now()
   const r = await request(`${pathBase}hello`)
-  check("ws 503 after connector exits", r.status === 503, `${r.status}`)
+  const ms = Date.now() - t0
+  check("ws 503 promptly after clean exit", r.status === 503 && ms < 3000, `${r.status} in ${ms} ms`)
 }
 
 // 2. sse transport, forced through a proxy that refuses upgrades (auto fallback)

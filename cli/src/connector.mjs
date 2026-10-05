@@ -74,7 +74,8 @@ function runWsTransport({ relayBase, originUrl, keepPath }) {
 
   let token = null
   let secret = null
-  let announced = false
+  let announced = false   // the first URL has been printed
+  let publicUrl = null    // the URL last printed
   let socket = null
 
   const origin = createOriginBridge(originUrl, keepPath, (frame) => {
@@ -82,10 +83,13 @@ function runWsTransport({ relayBase, originUrl, keepPath }) {
     try { socket.send(JSON.stringify(frame)) } catch {}
   })
 
+  // Send `bye` before closing: a bare close looks like a dropped socket, which
+  // the relay holds open for the re-attach grace instead of tearing down.
   onShutdown = () => new Promise((r) => {
     const ws = socket
     if (!ws || ws.readyState !== WebSocket.OPEN) { r(); return }
     ws.once("close", r)
+    try { ws.send(JSON.stringify({ type: "bye" })) } catch {}
     try { ws.close(1000, "bye") } catch { r() }
   })
 
@@ -118,19 +122,21 @@ function runWsTransport({ relayBase, originUrl, keepPath }) {
         try { msg = JSON.parse(raw.toString()) } catch { return }
         if (msg.type === "registered") {
           attempt = 0
-          // A relay that predates ws re-attach ignores ?token= and hands out a
-          // fresh tunnel, so the old link is dead. Say so instead of leaving
-          // the user with a URL that 503s.
-          const changed = announced && token && msg.token !== token
           token = msg.token
           secret = msg.secret ?? secret
           origin.setToken(msg.token)
           if (!announced) {
             announced = true
+            publicUrl = msg.url
             printRegistered(msg.url, originUrl, "ws")
             resolve()
-          } else if (changed) {
+          } else if (msg.url !== publicUrl) {
+            // The relay could not re-attach (grace expired, or it predates ws
+            // re-attach and ignored ?token=) and issued a fresh tunnel. The old
+            // link is dead; print the new one instead of leaving the user with
+            // a URL that 503s.
             console.error("anontun: the relay issued a new tunnel instead of re-attaching; the previous URL is gone")
+            publicUrl = msg.url
             printRegistered(msg.url, originUrl, "ws")
           }
           return
@@ -154,9 +160,8 @@ function runWsTransport({ relayBase, originUrl, keepPath }) {
 
       ws.on("close", (code, reason) => {
         // The relay refuses a re-attach it cannot match (gone, or taken over).
-        // Fall back to a fresh tunnel — the URL changes, which is better than
-        // exiting, and the CLI prints nothing new only because nothing else can
-        // be done about the old link.
+        // Fall back to a fresh tunnel: the URL changes, which is better than
+        // exiting, and the new URL is printed on `registered`.
         if (code === 4403 || code === 4409) { token = null; secret = null }
         retry(`relay socket closed (code=${code}${reason?.length ? ` ${reason.toString()}` : ""})`)
       })
