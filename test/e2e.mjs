@@ -323,6 +323,14 @@ if (!process.env.RELAY && relayUrl.protocol === "http:") {
   const r = await request(`${pathBase}echo?k=1`)
   let e = {}; try { e = JSON.parse(r.body.toString()) } catch {}
   check("keep-path forwards /t/<token> prefix", e.path === `/t/${token}/echo?k=1`, `origin saw ${e.path}`)
+
+  // The same tunnel is reachable host-based, where no prefix was ever sent. Adding
+  // one there 404s every path, so keep-path must stay out of the way per request.
+  if (TUNNEL_HOST) {
+    const rh = await request(`${relay}/echo?k=2`, { headers: { host: `${token}.${TUNNEL_HOST}` } })
+    let eh = {}; try { eh = JSON.parse(rh.body.toString()) } catch {}
+    check("keep-path leaves host-based requests unprefixed", eh.path === "/echo?k=2", `origin saw ${eh.path}`)
+  }
   c.kill("SIGTERM")
 }
 
