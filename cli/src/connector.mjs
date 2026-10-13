@@ -15,7 +15,17 @@ import { WebSocket } from "ws"
 import http from "node:http"
 import https from "node:https"
 import { URL } from "node:url"
+import dns from "node:dns"
 import { ConnectProxyAgent, proxyUrlFor } from "./proxy-agent.mjs"
+
+// Node asks getaddrinfo for the origin with AI_ADDRCONFIG, which drops IPv6
+// results on a host that has no global IPv6 address — a container, typically.
+// A dev server bound to IPv6 loopback (Vite's default `localhost` resolves to
+// ::1) is then unreachable: the connector dials 127.0.0.1 and the tunnel
+// answers 502 origin_unreachable, while curl on the same box works. Look the
+// origin up without that hint; Node still tries every address it gets back, so
+// an IPv4-only origin keeps working too.
+const originLookup = (hostname, options, cb) => dns.lookup(hostname, { ...options, hints: 0 }, cb)
 
 const SSE_RECONNECT_ATTEMPTS = 10
 const SSE_RECONNECT_DELAY_MS = 1000
@@ -284,10 +294,21 @@ async function readSse(body, onEvent) {
 
 function createOriginBridge(originUrl, keepPath, sendFrame) {
   const upstreamWss = new Map()  // id → upstream WS connections to local origin
-  let pathPrefix = ""            // "/t/<token>" when keepPath, set on register
+  let tunnelToken = ""           // set on register; used by prefixFor()
 
   function setToken(token) {
-    if (keepPath) pathPrefix = `/t/${token}`
+    tunnelToken = token
+  }
+
+  // keepPath re-adds the "/t/<token>" prefix the relay strips off a path-based
+  // request. Host-based requests (<token>.tunnel.../) never carried that prefix,
+  // and the relay serves both forms for the same tunnel — so this has to be decided
+  // per request, from the public Host header, not once at registration. Adding the
+  // prefix to a host-based request makes the origin 404 every path.
+  function prefixFor(headers) {
+    if (!keepPath || !tunnelToken) return ""
+    const host = (headers?.host ?? "").toLowerCase()
+    return host.startsWith(`${tunnelToken.toLowerCase()}.`) ? "" : `/t/${tunnelToken}`
   }
 
   function handleFrame(msg) {
@@ -312,7 +333,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
   // ── HTTP request handler ─────────────────────────────────────
 
   function handleHttp(msg) {
-    const target = new URL(pathPrefix + msg.path, originUrl)
+    const target = new URL(prefixFor(msg.headers) + msg.path, originUrl)
     const lib = target.protocol === "https:" ? https : http
     const headers = { ...msg.headers }
     // Don't forward our own host header — set the local origin's host.
@@ -335,6 +356,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
       method: msg.method,
       path: target.pathname + target.search,
       headers,
+      lookup: originLookup,
     }
     const req = lib.request(reqOpts, (res) => {
       const chunks = []
@@ -371,7 +393,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
 
   function handleUpgrade(msg) {
     const wsScheme = originUrl.startsWith("https:") ? "wss:" : "ws:"
-    const target = new URL(pathPrefix + msg.path, originUrl)
+    const target = new URL(prefixFor(msg.headers) + msg.path, originUrl)
     const targetUrl = `${wsScheme}//${target.host}${target.pathname}${target.search}`
 
     // Forward the requested subprotocols (e.g. Vite's HMR client sends
@@ -382,6 +404,7 @@ function createOriginBridge(originUrl, keepPath, sendFrame) {
       .split(",").map((p) => p.trim()).filter(Boolean)
     const upstream = new WebSocket(targetUrl, protocols, {
       headers: stripHopByHop(msg.headers),
+      lookup: originLookup,
     })
     upstream.binaryType = "arraybuffer"
 

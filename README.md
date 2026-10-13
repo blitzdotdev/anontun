@@ -34,8 +34,11 @@ export ANONTUN_RELAY=https://anontun.YOURNAME.workers.dev
 
 Optional, on a custom domain: set `TUNNEL_HOST = "tunnel.example.com"` in `[vars]`, add a
 proxied wildcard DNS record `*.tunnel` → the relay, a Worker route `*.tunnel.example.com/*`, and
-a certificate that covers the second-level wildcard (Cloudflare Universal SSL does not — use
-Advanced Certificate Manager). Tunnels are then `https://<token>.tunnel.example.com/` with the
+a certificate that covers the second-level wildcard. Universal SSL covers only `*.example.com`,
+so check the SANs of the certificate on the edge first: adding the Worker custom domain
+`tunnel.example.com` has been seen to produce a certificate that already lists
+`*.tunnel.example.com`, with no add-on. Buy Advanced Certificate Manager only if the wildcard is
+missing. Tunnels are then `https://<token>.tunnel.example.com/` with the
 path passed through untouched, which is what single-page apps need.
 
 ## Test
@@ -116,7 +119,9 @@ the Worker, and only the connector leg is HTTP.
 - Streaming bodies (uploads/downloads buffered up to 10 MB)
 - Custom subdomain names (tokens are random). Note that without `TUNNEL_HOST` tunnels are path-based
   and apps that emit root-absolute URLs (`/src/main.tsx`, `/@vite/client`) break under `/t/<token>/`
-  unless their base path is set to it (`npx anontun --keep-path` forwards the prefix unstripped)
+  unless their base path is set to it (`npx anontun --keep-path` forwards the prefix unstripped).
+  Both URL forms reach the same tunnel, so `--keep-path` decides per request, from the public
+  `Host` header: a path-based request gets the prefix back, a host-based one does not.
 - Authentication / private tunnels
 - Per-IP rate limiting
 - TCP/UDP forwarding (HTTP+WS only)
