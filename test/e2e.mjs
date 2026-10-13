@@ -132,6 +132,29 @@ function startFakeProxy() {
 await startFakeProxy()
 const viaFake = `http://127.0.0.1:${fakePort}`
 
+// ── plain TCP passthrough, to cut a live WebSocket on demand ──
+// (only for a local http relay; an external https relay is used directly)
+const tcpPort = await freePort()
+let tcpProxy = null
+const tcpSockets = new Set()
+function startTcpProxy() {
+  tcpProxy = net.createServer((client) => {
+    const up = net.connect(Number(relayUrl.port) || 80, relayUrl.hostname)
+    tcpSockets.add(client); tcpSockets.add(up)
+    const drop = (s) => { tcpSockets.delete(s); s.destroy() }
+    client.pipe(up); up.pipe(client)
+    client.on("error", () => drop(up)); client.on("close", () => tcpSockets.delete(client))
+    up.on("error", () => drop(client)); up.on("close", () => tcpSockets.delete(up))
+  })
+  return new Promise((r) => tcpProxy.listen(tcpPort, "127.0.0.1", r))
+}
+// net.Server has no closeAllConnections (that is http.Server), so track them.
+function cutTcpProxy() {
+  for (const s of tcpSockets) s.destroy()
+  tcpSockets.clear()
+}
+const viaTcp = `http://127.0.0.1:${tcpPort}`
+
 // ── helpers ───────────────────────────────────────────────────
 function startConnector(relayBase, extra = [], env = {}) {
   const c = spawn(process.execPath, [CLI, "--relay", relayBase, ...extra, `http://127.0.0.1:${originPort}`],
@@ -140,6 +163,16 @@ function startConnector(relayBase, extra = [], env = {}) {
   c.url = async () => waitFor(() => { const m = c._out.match(/\n\s+(https?:\/\/\S+\/)\n/); return m?.[1] }, 20_000, "registered URL")
   return c
 }
+// The tunnel's token, from either URL shape: https://relay/t/<token>/ or
+// https://<token>.tunnel.example.com/. A regex alternation over the whole URL
+// is not safe here — "//<label>." matches the relay's own host first when the
+// relay has a dotted hostname, so parse the URL instead.
+function tokenFromUrl(u) {
+  const url = new URL(u)
+  const m = url.pathname.match(/^\/t\/([^/]+)/)
+  return m ? m[1] : url.hostname.split(".")[0]
+}
+
 function request(url, { method = "GET", body, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url)
@@ -200,7 +233,7 @@ async function transportCase(label, relayBase, env) {
   // Public-side requests go straight to the relay (host header when host-based).
   // For local runs the host-based hostname does not resolve, so use the path form
   // on the relay and cover host-based routing separately below.
-  const token = url.match(/\/t\/([0-9a-z]+)\/|\/\/([0-9a-z]+)\./)?.slice(1).find(Boolean)
+  const token = tokenFromUrl(url)
   const pathBase = `${relay}/t/${token}/`
   await httpSuite(label, pathBase)
   const wsRes = await wsEcho(pathBase.replace(/^http/, "ws") + "ws/chat?room=1", { protocol: "chat-v1" })
@@ -224,9 +257,13 @@ async function transportCase(label, relayBase, env) {
 // 1. ws transport (direct)
 {
   const { c, pathBase } = await transportCase("ws", relay, { EXPECT_TRANSPORT: "ws" })
+  // Clean exit: the CLI sends `bye`, so the relay tears the tunnel down at once
+  // instead of holding requests for the reconnect grace.
   c.kill("SIGTERM"); await sleep(1500)
+  const t0 = Date.now()
   const r = await request(`${pathBase}hello`)
-  check("ws 503 after connector exits", r.status === 503, `${r.status}`)
+  const ms = Date.now() - t0
+  check("ws 503 promptly after clean exit", r.status === 503 && ms < 3000, `${r.status} in ${ms} ms`)
 }
 
 // 2. sse transport, forced through a proxy that refuses upgrades (auto fallback)
@@ -251,12 +288,37 @@ async function transportCase(label, relayBase, env) {
   check("sse 503 within 3 s after clean exit", r2.status === 503, `${r2.status}`)
 }
 
+// 2b. ws transport: the socket drops, the CLI re-attaches, the URL survives
+if (!process.env.RELAY && relayUrl.protocol === "http:") {
+  console.log("\n== ws reconnect ==")
+  await startTcpProxy()
+  const c = startConnector(viaTcp, [], { ANONTUN_TRANSPORT: "ws" })
+  const url = await c.url()
+  const token = tokenFromUrl(url)
+  const pathBase = `${relay}/t/${token}/`
+  const before = await request(`${pathBase}hello`)
+  check("ws reconnect: serves before the drop", before.status === 200, `${before.status}`)
+  // Cut every connection through the passthrough, then let it accept again.
+  cutTcpProxy()
+  await new Promise((r) => tcpProxy.close(r))
+  await startTcpProxy()
+  await waitFor(() => /reconnecting/.test(c._out), 15_000, "ws reconnect log line").catch(() => {})
+  check("ws reconnect: CLI reconnects instead of exiting", /relay socket (closed|error).*reconnecting/.test(c._out), c._out.split("\n").filter((l) => l.startsWith("anontun:")).slice(-1)[0] ?? "")
+  await sleep(2000)
+  const after = await request(`${pathBase}hello`)
+  check("ws reconnect: same URL still serves", after.status === 200 && after.body.toString() === "hi ", `${after.status}`)
+  const w = await wsEcho(pathBase.replace(/^http/, "ws") + "ws/after")
+  check("ws reconnect: public WS works after re-attach", w.open && w.text === "text-echo", w.error ?? "")
+  c.kill("SIGTERM"); await sleep(2000)
+  cutTcpProxy(); await new Promise((r) => tcpProxy.close(r)); tcpProxy = null
+}
+
 // 3. --keep-path
 {
   console.log("\n== keep-path ==")
   const c = startConnector(relay, ["--keep-path"], { ANONTUN_TRANSPORT: "ws" })
   const url = await c.url()
-  const token = url.match(/\/t\/([0-9a-z]+)\/|\/\/([0-9a-z]+)\./)?.slice(1).find(Boolean)
+  const token = tokenFromUrl(url)
   const pathBase = `${relay}/t/${token}/`
   const r = await request(`${pathBase}echo?k=1`)
   let e = {}; try { e = JSON.parse(r.body.toString()) } catch {}
@@ -274,6 +336,6 @@ async function transportCase(label, relayBase, env) {
 
 // ── summary ────────────────────────────────────────────────────
 console.log(`\n${results.length - failed}/${results.length} checks passed${failed ? `, ${failed} FAILED` : ""}`)
-origin.close(); wss.close(); fakeProxy?.close()
+origin.close(); wss.close(); fakeProxy?.close(); tcpProxy?.close()
 wrangler?.kill("SIGTERM")
 process.exit(failed ? 1 : 0)
