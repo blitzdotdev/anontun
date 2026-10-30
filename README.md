@@ -135,3 +135,7 @@ the Worker, and only the connector leg is HTTP.
 - `relay/` — Cloudflare Worker + Durable Object (one DO instance per active tunnel, keyed by token).
 - `cli/` — Node CLI with the `ws` package. Opens a WS to `/_connect` (or an SSE stream to `/_connect/sse`), listens for framed requests, forwards to localhost.
 - Wire format documented in `relay/src/types.ts`.
+
+## License
+
+Apache 2.0, see [LICENSE](LICENSE).

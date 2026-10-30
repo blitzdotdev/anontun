@@ -148,7 +148,7 @@ footer a:hover{color:var(--ink)}
   <h1>A tunnel to localhost that runs on <em>your own</em> Cloudflare account.</h1>
   <p class="lede">Deploy one Worker. After that, any machine you give its address to (yours, a teammate's, an AI agent's sandbox) runs one command and gets a public URL for its local server. No sign-up, no token, no <span class="chip">cloudflared</span>. WebSockets work, and it gets through the HTTPS proxies that stop other tunnels.</p>
   <div class="cmd"><span class="line"><i>$</i> npx anontun 3000</span><span>→ https://anontun.you.workers.dev/t/Q7R5X2KMABCD/</span></div>
-  <p class="meta"><span>Runs on your Cloudflare account</span><span>HTTP and WebSockets</span><span>HTTPS on port 443 only</span></p>
+  <p class="meta"><span>Open source, Apache 2.0</span><span>Runs on your Cloudflare account</span><span>HTTP and WebSockets</span></p>
 
   <section id="how" aria-labelledby="h-how">
     <div class="h"><h2 id="h-how">How it works</h2><span class="n">01</span></div>
@@ -230,12 +230,12 @@ footer a:hover{color:var(--ink)}
       <details><summary>Is there a public relay I can use?</summary><p>No. Each person or team runs their own; that's the point. A free tunnel service open to anyone gets used to host phishing pages, and its domain ends up on block lists. On your own account, you decide who gets the address.</p></details>
       <details><summary>Who can reach my server?</summary><p>Anyone who has the tunnel's URL, while the CLI runs. The token in it is random and hard to guess, but it isn't a password: share it like you would share a private link, and stop the CLI when you're done.</p></details>
       <details><summary>Who can open tunnels on my relay?</summary><p>Anyone who knows your relay's address. Keep it among the people and agents you mean to use it, and use Cloudflare's tools (rate limits, Access) if you need more.</p></details>
-      <details><summary>What does it cost?</summary><p>The code is free. The relay runs on your Cloudflare account under its usual Workers and Durable Objects pricing; light use fits the free plan.</p></details>
+      <details><summary>What does it cost?</summary><p>The code is free, under the Apache 2.0 license. The relay runs on your Cloudflare account under its usual Workers and Durable Objects pricing; light use fits the free plan.</p></details>
     </div>
   </section>
 
   <footer>
-    <span>anontun · <a href="https://github.com/blitzdotdev/anontun">GitHub</a> · by the makers of <a href="https://agentsocket.dev">Agent Socket</a></span>
+    <span>anontun · open source under Apache 2.0 · <a href="https://github.com/blitzdotdev/anontun">GitHub</a> · by the makers of <a href="https://agentsocket.dev">Agent Socket</a></span>
     <span>Inter and Newsreader (OFL)</span>
   </footer>
 </main>

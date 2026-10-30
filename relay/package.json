@@ -16,5 +16,6 @@
     "@cloudflare/workers-types": "^4.20251001.0",
     "typescript": "^5.5.0",
     "wrangler": "^4.0.0"
-  }
+  },
+  "license": "Apache-2.0"
 }

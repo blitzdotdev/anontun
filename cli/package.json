@@ -2,6 +2,7 @@
   "name": "anontun",
   "version": "0.1.0",
   "description": "Expose localhost through your own anontun relay on Cloudflare: HTTP and WebSockets, through HTTPS-only proxies.",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "anontun": "./src/cli.mjs"
@@ -9,7 +10,8 @@
   "main": "./src/connector.mjs",
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "start": "node src/cli.mjs"
