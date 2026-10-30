@@ -5,7 +5,7 @@
 //   npx anontun http://localhost:3000
 //
 // Env:
-//   ANONTUN_RELAY      base URL of the relay (default: https://anontun.example.com)
+//   ANONTUN_RELAY      base URL of your relay (required, or --relay)
 //   ANONTUN_KEEP_PATH  1 = same as --keep-path
 //   ANONTUN_TRANSPORT  testing only: force "ws" or "sse". Default "auto" —
 //                      WebSocket, falling back to SSE + POST when a proxy
@@ -24,7 +24,7 @@ Usage:
   anontun --keep-path <port>             # forward /t/<token>/... unstripped (apps served under that base)
 
 Env:
-  ANONTUN_RELAY      base URL of the relay (default https://anontun.example.com)
+  ANONTUN_RELAY      base URL of your relay (required, or --relay)
   ANONTUN_KEEP_PATH  1 = same as --keep-path
 
 The relay connection is a WebSocket; behind a proxy that refuses the upgrade
@@ -34,7 +34,7 @@ NO_PROXY are honoured.
   process.exit(args.length === 0 ? 1 : 0)
 }
 
-let relayBase = process.env.ANONTUN_RELAY ?? "https://anontun.example.com"
+let relayBase = process.env.ANONTUN_RELAY
 let keepPath = process.env.ANONTUN_KEEP_PATH === "1"
 let transport = process.env.ANONTUN_TRANSPORT ?? "auto"
 const positional = []
@@ -42,6 +42,15 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--relay") { relayBase = args[++i]; continue }
   if (args[i] === "--keep-path") { keepPath = true; continue }
   positional.push(args[i])
+}
+
+// There is no shared relay: each person or team deploys their own (relay/).
+if (!relayBase) {
+  console.error(`anontun: no relay set. Deploy the relay to your Cloudflare account (see
+https://github.com/blitzdotdev/anontun#deploy-the-relay), then run:
+  ANONTUN_RELAY=https://anontun.<you>.workers.dev npx anontun ${positional[0] ?? "<port>"}
+or pass --relay <url>.`)
+  process.exit(1)
 }
 
 if (!["ws", "sse", "auto"].includes(transport)) {

@@ -2,6 +2,8 @@
 
 A no-login, no-token tunnel service you self-host on Cloudflare. Once deployed, **any** client (you, your agents, anyone you give the URL to) can expose a local port without signing up for anything.
 
+Website: [anontun.aisocket.dev](https://anontun.aisocket.dev) (source in `site/`). There is no shared public relay: you deploy your own.
+
 ```
 [your laptop / agent]              [your CF Worker]              [public]
                                                                   
@@ -50,6 +52,8 @@ RELAY=https://your-relay npm test          # same suite against a deployed relay
 ```
 
 ## Use the CLI
+
+The CLI needs your relay's address, from `ANONTUN_RELAY` (set it once, as above) or `--relay <url>`; without one it says how to deploy a relay and exits.
 
 ```bash
 npx anontun 3000

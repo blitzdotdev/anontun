@@ -1,0 +1,9 @@
+// The anontun website: static files only (public/), served by Workers static
+// assets at anontun.aisocket.dev. Build first: node site/build.mjs.
+// Deploy: npx wrangler deploy (from site/).
+{
+  "name": "anontun-site",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public" },
+  "routes": [{ "pattern": "anontun.aisocket.dev", "custom_domain": true }]
+}

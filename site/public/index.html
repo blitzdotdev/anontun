@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anontun: a tunnel to localhost on your own Cloudflare account</title>
+<meta name="description" content="Deploy one Cloudflare Worker, then any machine runs npx anontun 3000 and gets a public URL for its local server. No sign-up, no token, no cloudflared. WebSockets work, and it gets through the HTTPS proxies of CI runners and AI sandboxes.">
+<meta property="og:title" content="anontun">
+<meta property="og:description" content="A tunnel to localhost that runs on your own Cloudflare account. WebSockets work; it gets through HTTPS-only proxies.">
+<link rel="preload" href="/fonts/Inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%223%22 y=%223%22 width=%2226%22 height=%2226%22 rx=%227%22 fill=%22%231d1d20%22/%3E%3Cpath d=%22M9 20a7 7 0 0 1 14 0%22 fill=%22none%22 stroke=%22%2312a88f%22 stroke-width=%223%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
+<style>
+@font-face{font-family:Inter;src:url(/fonts/Inter.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:Newsreader;src:url(/fonts/Newsreader-Italic.woff2) format("woff2");font-style:italic;font-weight:400 500;font-display:swap}
+:root{
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --serif:Newsreader,Georgia,"Times New Roman",serif;
+  --page:#fcfcfb;--ink:#1d1d20;--text:#45454a;--muted:#8b8b90;--rule:#e7e7e4;--soft:#f4f4f2;
+  /* the one accent, for the tunnel itself */
+  --accent:#0e7c6b;
+  --col:600px;--wide:1000px;
+}
+*{box-sizing:border-box}
+html{color-scheme:light;-webkit-text-size-adjust:100%;scroll-padding-top:24px}
+body{margin:0;background:var(--page);color:var(--text);font:15.5px/1.62 var(--sans);font-feature-settings:"cv11","ss01";-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:underline;text-decoration-color:#c9c9c6;text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{text-decoration-color:var(--ink)}
+em{font-family:var(--serif);font-style:italic;font-weight:400;font-size:1.06em;letter-spacing:-.005em}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+
+.layout{display:grid;grid-template-columns:minmax(24px,1fr) 190px 56px var(--col) minmax(24px,calc(var(--wide) - var(--col))) minmax(24px,1fr)}
+.toc{grid-column:2;position:sticky;top:0;align-self:start;height:100vh;padding:58px 0 40px;font-size:13.5px;line-height:1.95}
+.toc a{display:block;color:var(--muted);text-decoration:none}
+.toc a:hover,.toc a[aria-current="true"]{color:var(--ink)}
+.toc .brand{color:var(--ink);font-weight:550;margin-bottom:2px}
+.toc .gap{height:22px}
+main{grid-column:4/6;min-width:0;padding:56px 0 0}
+main>*,section>*{max-width:var(--col)}
+main>section{max-width:none}
+main>.wide,section>.wide{max-width:var(--wide)}
+@media (max-width:1180px){
+  .layout{grid-template-columns:1fr min(var(--col),calc(100% - 40px)) 1fr}
+  .toc{display:none}
+  main{grid-column:2}
+  main>.wide,section>.wide{max-width:none;margin-left:calc((min(var(--col),100vw - 40px) - min(var(--wide),100vw - 24px))/2);width:min(var(--wide),calc(100vw - 24px))}
+}
+
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;font-size:14px}
+.top .name{color:var(--ink);font-weight:550}
+.top .name span{color:var(--muted);font-weight:400}
+.top nav{display:flex;gap:18px;color:var(--muted)}
+.top nav a{text-decoration:none}
+.top nav a:hover{color:var(--ink)}
+.kicker{margin:40px 0 0;font-family:var(--serif);font-style:italic;font-size:21px;line-height:1.3;letter-spacing:-.005em;color:var(--accent)}
+.kicker::before{content:"";display:inline-block;width:9px;height:9px;margin:0 10px 2px 1px;border-radius:50%;background:#12a88f;box-shadow:0 0 0 4px #12a88f1f}
+h1{margin:6px 0 0;color:var(--ink);font-size:clamp(30px,4.4vw,40px);line-height:1.12;font-weight:600;letter-spacing:-.028em;text-wrap:balance}
+h1 em{font-size:1.12em;letter-spacing:-.01em;color:var(--accent)}
+.lede{margin:18px 0 0;font-size:17px;line-height:1.55;text-wrap:pretty}
+.cmd{margin:26px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.cmd .line{display:inline-flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;background:#fff;border:1px solid var(--rule);color:var(--ink);font-weight:550}
+.cmd .line i{font-style:normal;color:var(--muted);font-weight:400}
+.cmd>span{font-size:13.5px;color:var(--muted)}
+.meta{margin:16px 0 0;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;column-gap:8px}
+.meta span{white-space:nowrap}
+.meta span+span::before{content:"·";margin-right:8px;color:#c4c4c0}
+@media (max-width:560px){.top .name span{display:none}.meta{flex-direction:column}.meta span+span::before{display:none}}
+
+section{margin-top:84px}
+.h{display:flex;align-items:center;gap:16px}
+h2{margin:0;color:var(--ink);font-size:21px;line-height:1.3;font-weight:600;letter-spacing:-.016em}
+.h::after{content:"";order:1;flex:1;height:1px;background:var(--rule)}
+.h .n{order:2;font-family:var(--serif);font-style:italic;color:var(--muted);font-size:17px;letter-spacing:.01em}
+section p{margin:14px 0 0;text-wrap:pretty}
+.points{margin:22px 0 0;padding:0;list-style:none;display:grid;gap:18px}
+.points li{padding-left:22px;position:relative}
+.points li::before{content:"";position:absolute;left:2px;top:.72em;width:7px;height:1px;background:var(--muted)}
+.points b,.steps b{color:var(--ink);font-weight:550}
+.steps{margin:20px 0 0;padding:0;list-style:none;counter-reset:s;display:grid;gap:12px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:28px 1fr;align-items:baseline}
+.steps li::before{content:counter(s);color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.chip{font:inherit;font-size:.9em;padding:1px 6px;border:1px solid var(--rule);border-bottom-width:2px;border-radius:5px;background:#fff;color:var(--ink);white-space:nowrap}
+@media (max-width:560px){.chip{white-space:normal;overflow-wrap:anywhere}}
+.note{margin-top:18px;padding:12px 14px;border-radius:8px;background:var(--soft);font-size:14px;line-height:1.55}
+.note b{color:var(--ink);font-weight:550}
+
+.plate{position:relative;margin:28px 0 0;border-radius:12px;box-shadow:0 0 0 1px var(--rule);background:#fcfcfb;padding:48px 22px 30px}
+.plate .corner{position:absolute;top:18px;font-size:12px;color:var(--muted)}
+.plate .corner.fig{left:20px;color:var(--text)}.plate .corner.title{right:20px}
+.legend{font-size:13.5px;color:var(--text);margin:12px 0 0;padding:0 4px;max-width:calc(var(--col) + 140px)}
+@media (max-width:640px){.plate{padding:44px 10px 22px}}
+
+table{width:100%;border-collapse:collapse;margin:18px 0 0;font-size:14.5px}
+th,td{text-align:left;padding:9px 12px 9px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:13px}
+td:first-child{color:var(--ink);font-weight:500;width:42%}
+
+details{border-bottom:1px solid var(--rule);padding:12px 0}
+summary{cursor:pointer;color:var(--ink);font-weight:550;list-style:none;display:flex;justify-content:space-between;gap:12px}
+summary::after{content:"+";color:var(--muted);font-weight:400}
+details[open] summary::after{content:"–"}
+summary::-webkit-details-marker{display:none}
+details p{margin:8px 0 0;font-size:14.5px}
+
+footer{margin:96px 0 0;padding:18px 0 56px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+footer a{text-decoration:none}
+footer a:hover{color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+.ftun-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.ftun{display:block;width:100%;height:auto}
+@media (max-width:700px){.ftun-scroll .ftun{min-width:680px}}
+.ftun .fl{font:500 11.5px var(--sans);fill:var(--text)}
+.ftun .fl-strong{font-weight:600;font-size:12.5px;fill:var(--ink)}
+.ftun .fl-muted{font-weight:400;fill:var(--muted)}
+.ftun .fl-accent{fill:var(--accent);font-weight:500}
+.ftun .fl-num{font-size:10.5px;font-weight:600;fill:var(--muted)}
+.ftun .fbox{fill:#fff;stroke:#d6d6d3;stroke-width:1}
+.ftun .flane{stroke:#dcdcd9;stroke-width:1;stroke-dasharray:2 4;fill:none}
+.ftun .fh{fill:var(--accent);opacity:.06}
+.ftun .fnum{fill:none;stroke:#d0d0cd;stroke-width:1}
+.ftun .fa{stroke:#3a3a3f;stroke-width:1.25;fill:none}
+.ftun .fa-head{fill:#3a3a3f}
+.ftun .fa-accent{stroke:var(--accent)}
+.ftun .fa-accent-head{fill:var(--accent)}
+
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <a class="brand" href="#top">anontun</a>
+  <a href="https://github.com/blitzdotdev/anontun">GitHub</a>
+  <div class="gap"></div>
+  <a href="#how">How it works</a>
+  <a href="#why">Why another tunnel</a>
+  <a href="#deploy">Deploy your relay</a>
+  <a href="#use">Open a tunnel</a>
+  <a href="#proxies">Behind a proxy</a>
+  <a href="#limits">What it does and doesn't</a>
+  <a href="#questions">Questions</a>
+</nav>
+<main id="top">
+  <div class="top">
+    <div class="name">anontun <span>· a tunnel you host yourself</span></div>
+    <nav aria-label="Site"><a href="#deploy">Deploy</a><a href="https://github.com/blitzdotdev/anontun">GitHub</a></nav>
+  </div>
+  <p class="kicker">Your localhost, one link away.</p>
+  <h1>A tunnel to localhost that runs on <em>your own</em> Cloudflare account.</h1>
+  <p class="lede">Deploy one Worker. After that, any machine you give its address to (yours, a teammate's, an AI agent's sandbox) runs one command and gets a public URL for its local server. No sign-up, no token, no <span class="chip">cloudflared</span>. WebSockets work, and it gets through the HTTPS proxies that stop other tunnels.</p>
+  <div class="cmd"><span class="line"><i>$</i> npx anontun 3000</span><span>→ https://anontun.you.workers.dev/t/Q7R5X2KMABCD/</span></div>
+  <p class="meta"><span>Runs on your Cloudflare account</span><span>HTTP and WebSockets</span><span>HTTPS on port 443 only</span></p>
+
+  <section id="how" aria-labelledby="h-how">
+    <div class="h"><h2 id="h-how">How it works</h2><span class="n">01</span></div>
+    <p>The CLI on your machine opens one connection out to your relay and keeps it open. Requests to the tunnel's URL reach the relay, go down that connection to the CLI, and the CLI passes them to your local server. Nothing listens on your machine and no port is opened in your router.</p>
+    <div class="wide">
+      <figure class="plate" aria-labelledby="fig1-cap">
+        <div class="corner fig" aria-hidden="true">Fig 1</div><div class="corner title" aria-hidden="true">One request through a tunnel</div>
+        <div class="ftun-scroll"><svg class="ftun" viewBox="0 0 820 430" role="img" aria-label="A sequence across four lanes: anyone with the URL, your relay, the anontun CLI and your local server. 1: the CLI connects out to your relay over port 443 and gets a URL. 2: you share the URL. 3: a request to the URL goes to your relay, down the open connection to the CLI, and on to your local server; the reply comes back the same way. 4: WebSocket upgrades pass through end to end, both ways."><rect class="fh" x="330" y="128" width="215" height="268" rx="3"/><text class="fl fl-accent" x="437.5" y="412" text-anchor="middle">one connection, held open while the CLI runs</text><rect class="fbox" x="24" y="18" width="172" height="40" rx="5"/><text class="fl fl-strong" x="110" y="35" text-anchor="middle">Anyone with the URL</text><text class="fl fl-muted" x="110" y="50" text-anchor="middle">a browser or a webhook</text><path class="flane" d="M110 74V400"/><rect class="fbox" x="244" y="18" width="172" height="40" rx="5"/><text class="fl fl-strong" x="330" y="35" text-anchor="middle">Your relay</text><text class="fl fl-muted" x="330" y="50" text-anchor="middle">a Worker on your account</text><path class="flane" d="M330 74V400"/><rect class="fbox" x="459" y="18" width="172" height="40" rx="5"/><text class="fl fl-strong" x="545" y="35" text-anchor="middle">anontun</text><text class="fl fl-muted" x="545" y="50" text-anchor="middle">the CLI, on your machine</text><path class="flane" d="M545 74V400"/><rect class="fbox" x="644" y="18" width="172" height="40" rx="5"/><text class="fl fl-strong" x="730" y="35" text-anchor="middle">Your server</text><text class="fl fl-muted" x="730" y="50" text-anchor="middle">localhost:3000</text><path class="flane" d="M730 74V400"/><circle class="fnum" cx="26" cy="114" r="9"/><text class="fl fl-num" x="26" y="118" text-anchor="middle">1</text><path class="fa"  d="M539 106H337.5"/><path class="fa-head" d="M331.5 106l9 -4.2v8.4z"/><text class="fl" x="437.5" y="99" text-anchor="middle">connects out, over port 443</text><path class="fa fa-accent" stroke-dasharray="4 3" d="M336 128H537.5"/><path class="fa-head fa-accent-head" d="M543.5 128l-9 -4.2v8.4z"/><text class="fl fl-accent" x="437.5" y="142" text-anchor="middle">a URL: …/t/Q7R5X2KMABCD/</text><circle class="fnum" cx="26" cy="198" r="9"/><text class="fl fl-num" x="26" y="202" text-anchor="middle">2</text><path class="fa" stroke-dasharray="2 3" d="M539 196C415 174 240 174 124 194.4"/><path class="fa-head" d="M115 196l9.4 -5.6l-0.4 8.4z"/><text class="fl" x="327.5" y="172" text-anchor="middle">you share the URL</text><circle class="fnum" cx="26" cy="280" r="9"/><text class="fl fl-num" x="26" y="284" text-anchor="middle">3</text><path class="fa"  d="M116 270H322.5"/><path class="fa-head" d="M328.5 270l-9 -4.2v8.4z"/><text class="fl" x="220" y="263" text-anchor="middle">GET …/t/Q7R5…/api/items</text><path class="fa"  d="M336 270H537.5"/><path class="fa-head" d="M543.5 270l-9 -4.2v8.4z"/><text class="fl" x="437.5" y="263" text-anchor="middle">down the open connection</text><path class="fa"  d="M551 270H722.5"/><path class="fa-head" d="M728.5 270l-9 -4.2v8.4z"/><text class="fl" x="637.5" y="263" text-anchor="middle">GET /api/items</text><path class="fa" stroke-dasharray="4 3" d="M724 286H552.5"/><path class="fa-head" d="M546.5 286l9 -4.2v8.4z"/><path class="fa" stroke-dasharray="4 3" d="M539 286H337.5"/><path class="fa-head" d="M331.5 286l9 -4.2v8.4z"/><path class="fa" stroke-dasharray="4 3" d="M324 286H117.5"/><path class="fa-head" d="M111.5 286l9 -4.2v8.4z"/><text class="fl fl-muted" x="220" y="300" text-anchor="middle">200, the reply</text><text class="fl fl-muted" x="637.5" y="300" text-anchor="middle">your app answers</text><circle class="fnum" cx="26" cy="364" r="9"/><text class="fl fl-num" x="26" y="368" text-anchor="middle">4</text><path class="fa fa-accent"  d="M116 354H722.5"/><path class="fa-head fa-accent-head" d="M728.5 354l-9 -4.2v8.4z"/><path class="fa fa-accent" stroke-dasharray="4 3" d="M724 368H117.5"/><path class="fa-head fa-accent-head" d="M111.5 368l9 -4.2v8.4z"/><text class="fl fl-accent" x="420" y="347" text-anchor="middle">WebSocket upgrades pass through, both ways (Vite's hot reload, a chat, a game)</text></svg></div>
+      </figure>
+      <p class="legend" id="fig1-cap">Each tunnel is its own Durable Object on your relay, named by a random token. When the CLI exits, the tunnel and its URL are gone.</p>
+    </div>
+  </section>
+
+  <section id="why" aria-labelledby="h-why">
+    <div class="h"><h2 id="h-why">Why another tunnel</h2><span class="n">02</span></div>
+    <ul class="points">
+      <li><b>Quick tunnels drop WebSockets.</b> Cloudflare's free <span class="chip">trycloudflare.com</span> tunnels are flaky for WebSocket traffic and have tight limits, so hot reload, chats and games break.</li>
+      <li><b>Named tunnels need a login on every machine.</b> <span class="chip">cloudflared login</span> and a Cloudflare account wherever you want to expose something. With anontun you set it up once, on your account, and nobody else needs anything.</li>
+      <li><b>Sandboxes only allow HTTPS.</b> CI runners, cloud coding agents and corporate laptops send everything through an HTTPS proxy on port 443. <span class="chip">cloudflared</span> and ngrok need raw TCP to their edge and fail there; anontun only ever speaks HTTPS and WSS on 443.</li>
+      <li><b>It's yours.</b> The relay runs on your Cloudflare account, so the traffic, the limits and the logs are yours too.</li>
+    </ul>
+  </section>
+
+  <section id="deploy" aria-labelledby="h-deploy">
+    <div class="h"><h2 id="h-deploy">Deploy your relay</h2><span class="n">03</span></div>
+    <p>Once per person or team. You need a Cloudflare account; the free plan is enough to start.</p>
+    <ol class="steps">
+      <li><span>Clone <a href="https://github.com/blitzdotdev/anontun">blitzdotdev/anontun</a> and go to its <span class="chip">relay</span> folder.</span></li>
+      <li><span>Run <span class="chip">npm install</span>, then <span class="chip">npx wrangler login</span> once.</span></li>
+      <li><span>Run <span class="chip">npx wrangler deploy</span>. It prints your relay's address, like <span class="chip">https://anontun.you.workers.dev</span>.</span></li>
+    </ol>
+    <p>On a domain of your own, tunnels can have their own hostnames (<span class="chip">https://&lt;token&gt;.tunnel.example.com/</span>), which single-page apps prefer. The README has the <a href="https://github.com/blitzdotdev/anontun#deploy-the-relay">DNS and certificate steps</a>.</p>
+  </section>
+
+  <section id="use" aria-labelledby="h-use">
+    <div class="h"><h2 id="h-use">Open a tunnel</h2><span class="n">04</span></div>
+    <ol class="steps">
+      <li><span>Point the CLI at your relay: <span class="chip">export ANONTUN_RELAY=https://anontun.you.workers.dev</span>, or pass <span class="chip">--relay</span>.</span></li>
+      <li><span>Run <span class="chip">npx anontun 3000</span> for <span class="chip">localhost:3000</span>, or give it any local URL.</span></li>
+      <li><span>Share the URL it prints. It works until you press Ctrl-C.</span></li>
+    </ol>
+    <div class="note"><b>Apps that use absolute paths.</b> On a path-based URL (<span class="chip">/t/&lt;token&gt;/</span>), an app that asks for <span class="chip">/src/main.tsx</span> misses the prefix. Set the app's base path to it and run with <span class="chip">--keep-path</span>, or use host-based URLs on your own domain.</div>
+  </section>
+
+  <section id="proxies" aria-labelledby="h-proxies">
+    <div class="h"><h2 id="h-proxies">Behind a proxy</h2><span class="n">05</span></div>
+    <p>An AI agent in a cloud sandbox can start a dev server and show it to you through anontun, even where every connection goes through the sandbox's proxy. Two things make that work:</p>
+    <ul class="points">
+      <li><b>It uses the proxy.</b> The CLI honours <span class="chip">HTTPS_PROXY</span> and <span class="chip">NO_PROXY</span> and tunnels its connection through the proxy. A proxy that re-signs TLS works once its certificate is in <span class="chip">NODE_EXTRA_CA_CERTS</span>.</li>
+      <li><b>It doesn't need WebSockets on its own side.</b> When a proxy refuses the upgrade, the CLI switches by itself to a stream of server-sent events plus plain POSTs. Visitors to the tunnel can still use WebSockets; only the CLI's leg changes.</li>
+    </ul>
+  </section>
+
+  <section id="limits" aria-labelledby="h-limits">
+    <div class="h"><h2 id="h-limits">What it does and doesn't</h2><span class="n">06</span></div>
+    <table>
+      <thead><tr><th>Works</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Every HTTP method</td><td>Request and response headers passed through</td></tr>
+        <tr><td>Bodies</td><td>Up to 10 MB each way, buffered</td></tr>
+        <tr><td>WebSockets</td><td>End to end, including the requested subprotocol (Vite's <span class="chip">vite-hmr</span>)</td></tr>
+        <tr><td>Tunnels</td><td>One per CLI process; a new run gets a new random URL</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Not yet</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Streaming bodies</td><td>Large uploads and downloads are buffered</td></tr>
+        <tr><td>Names you choose</td><td>Tokens are random</td></tr>
+        <tr><td>Passwords on a tunnel</td><td>Anyone with the URL reaches the port</td></tr>
+        <tr><td>TCP and UDP</td><td>HTTP and WebSockets only</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="questions" aria-labelledby="h-questions">
+    <div class="h"><h2 id="h-questions">Questions</h2><span class="n">07</span></div>
+    <div style="margin-top:14px">
+      <details><summary>Is there a public relay I can use?</summary><p>No. Each person or team runs their own; that's the point. A free tunnel service open to anyone gets used to host phishing pages, and its domain ends up on block lists. On your own account, you decide who gets the address.</p></details>
+      <details><summary>Who can reach my server?</summary><p>Anyone who has the tunnel's URL, while the CLI runs. The token in it is random and hard to guess, but it isn't a password: share it like you would share a private link, and stop the CLI when you're done.</p></details>
+      <details><summary>Who can open tunnels on my relay?</summary><p>Anyone who knows your relay's address. Keep it among the people and agents you mean to use it, and use Cloudflare's tools (rate limits, Access) if you need more.</p></details>
+      <details><summary>What does it cost?</summary><p>The code is free. The relay runs on your Cloudflare account under its usual Workers and Durable Objects pricing; light use fits the free plan.</p></details>
+    </div>
+  </section>
+
+  <footer>
+    <span>anontun · <a href="https://github.com/blitzdotdev/anontun">GitHub</a> · by the makers of <a href="https://agentsocket.dev">Agent Socket</a></span>
+    <span>Inter and Newsreader (OFL)</span>
+  </footer>
+</main>
+</div>
+<script type="module">
+// Contents: mark the section being read.
+const links = new Map([...document.querySelectorAll('.toc a[href^="#"]:not(.brand)')].map((a) => [a.getAttribute("href").slice(1), a]))
+const seen = new Map()
+const mark = () => {
+  const ids = [...links.keys()]
+  const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 2
+  const current = atEnd ? ids.at(-1) : ids.find((id) => seen.get(id))
+  links.forEach((a, id) => a.setAttribute("aria-current", String(id === current)))
+}
+const io = new IntersectionObserver((entries) => { for (const e of entries) seen.set(e.target.id, e.isIntersecting); mark() }, { rootMargin: "-15% 0px -70% 0px" })
+for (const id of links.keys()) { const el = document.getElementById(id); if (el) io.observe(el) }
+addEventListener("scroll", mark, { passive: true })
+</script>
+</body>
+</html>

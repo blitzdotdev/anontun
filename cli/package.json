@@ -1,17 +1,29 @@
 {
   "name": "anontun",
-  "version": "0.0.0",
-  "description": "Anonymous tunnel CLI — exposes localhost via a self-hosted CF relay.",
+  "version": "0.1.0",
+  "description": "Expose localhost through your own anontun relay on Cloudflare: HTTP and WebSockets, through HTTPS-only proxies.",
   "type": "module",
   "bin": {
     "anontun": "./src/cli.mjs"
   },
   "main": "./src/connector.mjs",
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "start": "node src/cli.mjs"
   },
   "dependencies": {
     "ws": "^8.20.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blitzdotdev/anontun.git",
+    "directory": "cli"
+  },
+  "homepage": "https://anontun.aisocket.dev",
+  "engines": {
+    "node": ">=18"
   }
 }
